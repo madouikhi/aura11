@@ -65,12 +65,6 @@ jobs:
           /usr/libexec/PlistBuddy -c "Add :UIViewControllerBasedStatusBarAppearance bool false" "$PLIST" 2>/dev/null || true
           /usr/libexec/PlistBuddy -c "Add :UIStatusBarStyle string UIStatusBarStyleLightContent" "$PLIST" 2>/dev/null || true
 
-      - name: Install CocoaPods
-        run: |
-          cd ios
-          pod install --repo-update
-          cd ..
-
       - name: Build Unsigned iOS Archive
         run: |
           flutter build ipa --no-codesign --release
@@ -78,7 +72,7 @@ jobs:
       - name: Package Payload into Aura.ipa
         run: |
           mkdir -p Payload
-          cp -r build/ios/archive/Runner.xcarchive/Products/Applications/Runner.app Payload/
+          cp -r build/ios/archive/Runner.xcarchive/Products/Applications/*.app Payload/
           zip -r -9 Aura.ipa Payload
           ls -lh Aura.ipa
 
