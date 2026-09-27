@@ -1,0 +1,90 @@
+name: Build Aura iOS IPA
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build-ios:
+    name: Build Native Apple iOS IPA
+    runs-on: macos-14
+    timeout-minutes: 40
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Unpack Project ZIP (Cross-Platform)
+        run: |
+          python3 - << 'EOF'
+          import zipfile, os, glob
+
+          zip_files = glob.glob('*.zip')
+          if not zip_files:
+              print("No zip file found, using existing repository files directly.")
+          for zname in zip_files:
+              print(f"Unpacking {zname}...")
+              with zipfile.ZipFile(zname) as z:
+                  for m in z.infolist():
+                      target = m.filename.replace('\\', '/')
+                      if target.endswith('/'):
+                          os.makedirs(target, exist_ok=True)
+                          continue
+                      d = os.path.dirname(target)
+                      if d:
+                          os.makedirs(d, exist_ok=True)
+                      with open(target, 'wb') as f:
+                          f.write(z.read(m.filename))
+                      print(f"Extracted: {target}")
+          EOF
+          ls -la
+
+      - name: Set up Flutter SDK
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          cache: true
+
+      - name: Scaffold iOS Native Host
+        run: |
+          flutter create --org com.aura --project-name aura --platforms ios .
+          echo "iOS Host generated successfully."
+
+      - name: Install Flutter Dependencies
+        run: flutter pub get
+
+      - name: Generate Native App Icons
+        run: dart run flutter_launcher_icons
+
+      - name: Configure iOS Display Name & Theme
+        run: |
+          PLIST="ios/Runner/Info.plist"
+          /usr/libexec/PlistBuddy -c "Set :CFBundleDisplayName Aura" "$PLIST" 2>/dev/null || /usr/libexec/PlistBuddy -c "Add :CFBundleDisplayName string Aura" "$PLIST"
+          /usr/libexec/PlistBuddy -c "Set :CFBundleName Aura" "$PLIST" 2>/dev/null || /usr/libexec/PlistBuddy -c "Add :CFBundleName string Aura" "$PLIST"
+          /usr/libexec/PlistBuddy -c "Add :UIViewControllerBasedStatusBarAppearance bool false" "$PLIST" 2>/dev/null || true
+          /usr/libexec/PlistBuddy -c "Add :UIStatusBarStyle string UIStatusBarStyleLightContent" "$PLIST" 2>/dev/null || true
+
+      - name: Install CocoaPods
+        run: |
+          cd ios
+          pod install --repo-update
+          cd ..
+
+      - name: Build Unsigned iOS Archive
+        run: |
+          flutter build ipa --no-codesign --release
+
+      - name: Package Payload into Aura.ipa
+        run: |
+          mkdir -p Payload
+          cp -r build/ios/archive/Runner.xcarchive/Products/Applications/Runner.app Payload/
+          zip -r -9 Aura.ipa Payload
+          ls -lh Aura.ipa
+
+      - name: Upload IPA Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Aura-Native-IPA
+          path: Aura.ipa
+          retention-days: 14
